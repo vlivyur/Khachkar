@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 
 class FileStorage:
     WorkingDir = "../Khachkar.Data/"
@@ -23,7 +24,7 @@ class FileStorage:
         filename += ".json"
         filename = os.path.join(self.WorkingDir, filename)
         return filename
-    
+
     def ResultSave(self, place):
         """ Save to file
 
@@ -31,5 +32,10 @@ class FileStorage:
             place (dict): what to save
         """
         s = json.dumps(place, indent = 4)
-        with open(self.FileNameGet(place), 'w') as outxml:
-            outxml.write(s)
+        filename = self.FileNameGet(place)
+        try:
+            with open(filename, 'w') as outxml:
+                outxml.write(s)
+            logging.info(f"Saved result to {filename}")
+        except:
+            logging.error(f"Can't save {filename}")

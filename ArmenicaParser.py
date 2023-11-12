@@ -1,9 +1,9 @@
-from pathlib import Path
 from bs4 import BeautifulSoup, Tag #pip install beautifulsoup4
 import requests #pip install requests
 from enum import Enum
 from os import path
 from urllib import parse
+import logging
 
 class PartOfDescription(Enum):
     """ Indicates which part is parsing now
@@ -20,7 +20,7 @@ class PlacePage:
         self.Place = ""
         self.Site = ""
         self.PlaceUrl = ""
-    
+
 class ArmenicaKhachkarParser:
     """ Parser of armenica's pages
     """
@@ -43,7 +43,7 @@ class ArmenicaKhachkarParser:
             place.PlaceUrl = locationUrl.attrs["href"]
             locations.append(place)
         return locations
-    
+
     def PageNumberUrlGet(firstpage, pagenumber):
         """ Gets URL for pages number >= 2
 
@@ -55,7 +55,7 @@ class ArmenicaKhachkarParser:
             str: URL with included page number
         """
         return firstpage + "====0=" + str(pagenumber)
-    
+
     def UrlLoad(url):
         """ Gets BeautifulSoup object for given URL
 
@@ -68,7 +68,7 @@ class ArmenicaKhachkarParser:
         page = requests.get(url)
         sp = BeautifulSoup(page.text, "html.parser")
         return sp
-    
+
     def PlacePageMaxCount(bsFirstPage):
         """ Find number of last page for this place
 
@@ -97,12 +97,11 @@ class ArmenicaKhachkarParser:
             Khachkar[]: list of found on the page khachkars
         """
         kl = list()
-        # parse the first page of the place
+        # parse the page of the place
         for k in bsPage.find_all(name = "td", class_ = "contentnormal3"):
             # description of each khachkar is divided onto two parts: picture and description
             if "width" in k.attrs: # right (and last) part with description
                 whichPart = PartOfDescription.StartingPoint
-                numberOfAttribute = 0
                 key = ""
                 value = ""
                 for d in k.contents:
@@ -115,44 +114,29 @@ class ArmenicaKhachkarParser:
                             desc["Name"] = key.strip()
                             whichPart = PartOfDescription.Attribute
                         elif whichPart == PartOfDescription.Attribute:
-                            numberOfAttribute += 1
-                            desc["UnknownAttribute" + str(numberOfAttribute)] = key.strip()
+                            desc["UnknownAttribute" + str(len(desc) + 1)] = key.strip()
+                            logging.warn(f"Strange structure in {key.strip()} of description for {parse.urlparse(desc['ImageUrl'])}")
                             whichPart = PartOfDescription.Attribute
                         else:
                             whichPart = PartOfDescription.Attribute
                         key = d.text
                         continue
                     elif isinstance(d, str):
-                        numberOfAttribute += 1
                         if whichPart == PartOfDescription.StartingPoint:
                             key = "Name"
                         elif whichPart == PartOfDescription.KhachkarName:
                             value = key
                             key = "Name"
                         elif whichPart == PartOfDescription.AttributeValue:
-                            key = "UnknownAttribute" + str(numberOfAttribute)
-                        #if whichPart != PartOfDescription.StartingPoint:
+                            key = "UnknownAttribute" + str(len(desc) + 1)
+                            logging.warn(f"Strange structure in {key} of description for {path.basename(parse.urlparse(pictureUrl).path)}")
                         value = d.strip(": ")
                         if value == "N/A":
                             value = ""
                         desc[key] = value.strip()
                         whichPart = PartOfDescription.AttributeValue
-                # parse khachkarText
-                for description in khachkarText:
-                    numberOfAttribute += 1
-                    if ":" not in description:
-                        if "Description" in desc:
-                            key = "UnknownAttribute" + str(numberOfAttribute)
-                        else:
-                            key = "Description"
-                        value = description
-                    else:
-                        key, value = description.split(":")
-                    value = value.strip()
-                    if value == "N/A":
-                        value = ""
-                    if key in desc and desc[key] == "" and value != "" or key not in desc:
-                        desc[key] = value
+                # add khachkarText
+                ArmenicaKhachkarParser.AddDescriptionUnderImage(khachkarText, desc)
                 # everything of this khachkar is collected
                 kl.append(desc)
             else: # left part with image
@@ -160,7 +144,31 @@ class ArmenicaKhachkarParser:
                 imgurl = k.find(name = "a", class_ = "highslide")
                 if imgurl != None:
                     pictureUrl = imgurl.attrs["href"]
+                    logging.info("New khachkar " + path.basename(parse.urlparse(pictureUrl).path))
                     desc["ImageUrl"] = pictureUrl
                     khachkarText = k.text.strip().split("\n")
-            
         return kl
+
+    def AddDescriptionUnderImage(khachkarText, desc):
+        """ Parse and add new values from under image description
+
+        Args:
+            khachkarText (str): Multiline description under the image
+            desc (dict): dictionary with collected values from the right part
+        """
+        for description in khachkarText:
+            if ":" not in description:
+                if "Description" in desc:
+                    key = "UnknownAttribute" + str(len(desc) + 1)
+                    logging.warn(f"Strange structure in under image description for {parse.urlparse(desc['ImageUrl'])}")
+                else:
+                    key = "Description"
+                value = description
+            else:
+                key, value = description.split(":")
+                value = value.strip()
+                if value == "N/A":
+                    value = ""
+                if key in desc and desc[key] == "" and value != "" or key not in desc:
+                    desc[key] = value
+        return
